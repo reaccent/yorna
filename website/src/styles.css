@@ -1,0 +1,58 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/bricolage-grotesque/opsz.css";
+
+/* Flat by design: solid fills and 1px/2px rules only — no shadows, gradients, blur or glow. */
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Inter Variable", ui-sans-serif, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+  --color-paper: #f5efe6;
+  --color-paper-2: #ebe3d6;
+  --color-line: #d9cebe;
+  --color-ink: #191716;
+  --color-ink-2: #221f1c;
+  --color-ink-3: #2c2825;
+  --color-ink-line: #3a3430;
+  --color-ink-soft: #5f5750;
+  --color-cream: #eee8e1;
+  --color-cream-soft: #a79e96;
+  --color-amber: #f2b544;
+  --color-amber-deep: #d99a22;
+  --color-coral: #ef7a5f;
+  --color-rose: #e66b9a;
+  --color-sky: #5aaee8;
+  --color-mint: #5cc8a1;
+}
+
+@layer base {
+  html {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+    scroll-behavior: smooth;
+  }
+  ::selection {
+    @apply bg-amber text-ink;
+  }
+  a,
+  button {
+    @apply cursor-pointer;
+  }
+  :focus-visible {
+    @apply outline-ink outline-2 outline-offset-2;
+  }
+  .on-ink :focus-visible {
+    @apply outline-amber;
+  }
+}
+
+@utility container-page {
+  @apply mx-auto w-full max-w-[1200px] px-5 sm:px-8;
+}
+
+@utility font-display-tight {
+  font-family: var(--font-display);
+  letter-spacing: -0.035em;
+  font-variation-settings: "opsz" 96;
+}
