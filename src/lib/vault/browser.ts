@@ -1,4 +1,4 @@
-import { createStore, del, get, set } from "idb-keyval";
+import { createStore, del, delMany, get, keys, set } from "idb-keyval";
 import type { VaultFS } from "./index";
 
 export function createBrowserVault(): VaultFS {
@@ -25,6 +25,14 @@ export function createBrowserVault(): VaultFS {
     },
     async remove(path) {
       await del(path, store);
+    },
+    async removeDir(path) {
+      const prefix = `${path.replace(/\/$/, "")}/`;
+      const all = await keys(store);
+      await delMany(
+        all.filter((k) => typeof k === "string" && k.startsWith(prefix)),
+        store,
+      );
     },
   };
 }

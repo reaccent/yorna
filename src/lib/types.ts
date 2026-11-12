@@ -29,17 +29,26 @@ export const REMINDER_COLORS = [
 
 export type ReminderColor = (typeof REMINDER_COLORS)[number]["id"];
 
+export type ReminderRepeat = "daily" | "weekly" | "monthly";
+
 export interface Reminder {
   id: string;
-  /** Local calendar day, `yyyy-MM-dd`. */
+  /** Local calendar day, `yyyy-MM-dd`; the first occurrence for repeating reminders. */
   date: string;
   /** Optional local time `HH:mm`; timed reminders chime when due. */
   time?: string;
   title: string;
   color: ReminderColor;
+  /** One-off reminders only; repeating ones track {@link doneDates}. */
   done: boolean;
   createdAt: string;
   firedAt?: string;
+  /** Weekly repeats on the start date's weekday, monthly on its day (clamped to short months). */
+  repeat?: ReminderRepeat;
+  /** Occurrences (`yyyy-MM-dd`) of a repeating reminder that were checked off. */
+  doneDates?: string[];
+  /** Last day a repeating reminder chimed. */
+  firedOn?: string;
 }
 
 export interface SessionRecord {
@@ -84,6 +93,23 @@ export interface VaultIndex {
   sessions: SessionRecord[];
   settings: Settings;
   activeSession?: ActiveSession;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  /** Folder inside the vault holding this profile's data; `""` is the vault root. */
+  dir: string;
+  color: ReminderColor;
+  createdAt: string;
+  lastOpenedAt?: string;
+}
+
+/** `profiles.json` at the vault root. */
+export interface ProfileRegistry {
+  schema: 1;
+  profiles: Profile[];
+  lastProfileId?: string;
 }
 
 export type View = "calendar" | "notes" | "settings";

@@ -1,8 +1,21 @@
 import { create } from "zustand";
-import { dayKey, htmlToExcerpt, newId } from "./domain";
+import { dayKey, htmlToExcerpt, newId, occursOn } from "./domain";
+import { makeProfile, PRIMARY_PROFILE_ID, readRegistry, registryChangedOnDisk, writeRegistry } from "./profiles";
 import { forgetCustomSound } from "./sound";
-import type { ActiveSession, NoteMeta, NoteStatus, Reminder, SessionRecord, Settings, VaultIndex, View } from "./types";
-import { getVault, INDEX_FILE, notePath } from "./vault";
+import { mergeRemoteIndex } from "./sync";
+import type {
+  ActiveSession,
+  NoteMeta,
+  NoteStatus,
+  Profile,
+  Reminder,
+  SessionRecord,
+  Settings,
+  VaultIndex,
+  View,
+} from "./types";
+import { getRootVault, getVault, INDEX_FILE, notePath, setProfileDir } from "./vault";
+import { setVaultFolder, vaultConflicts, vaultFolder, type VaultFolder } from "./vault/folder";
 
 const DEFAULT_SETTINGS: Settings = {
   defaultSessionMinutes: 30,
@@ -11,13 +24,20 @@ const DEFAULT_SETTINGS: Settings = {
 
 const WELCOME_HTML = `<h2>Hook</h2><p>Open with the one sentence that makes someone stay. Yorna asks how long you want to work every time you open a script — finish the session and today counts on your calendar.</p><h2>Beats</h2><ul data-type="taskList"><li data-type="taskItem" data-checked="true"><p>Pick the video idea</p></li><li data-type="taskItem" data-checked="false"><p>Outline three beats</p></li><li data-type="taskItem" data-checked="false"><p>Write the call to action</p></li></ul><h2>B-roll &amp; references</h2><p>Reference images by path or URL with the image button — Yorna links them, it never copies thumbnails into your notes.</p><blockquote><p>Drag this card between To do, In progress and Done on the Notes board.</p></blockquote>`;
 
-type LoadStatus = "loading" | "ready" | "error";
+type LoadStatus = "loading" | "choose-profile" | "ready" | "error";
 
 interface YornaState {
   status: LoadStatus;
   error?: string;
   vaultKind: "filesystem" | "browser";
   vaultLocation: string;
+
+  profiles: Profile[];
+  activeProfileId: string | null;
+  /** Desktop only: the vault folder and whether it is the default location. */
+  vaultFolder: VaultFolder | null;
+  /** Conflict copies a sync app left in the vault folder. */
+  conflicts: string[];
 
   notes: NoteMeta[];
   reminders: Reminder[];
@@ -33,6 +53,23 @@ interface YornaState {
   saveState: "idle" | "saving" | "error";
 
   init(): Promise<void>;
+  /** Saves the current profile (if any) and loads another one. */
+  openProfile(id: string): Promise<void>;
+  /** Saves the current profile and returns to the profile picker. */
+  chooseProfile(): Promise<void>;
+  createProfile(name: string): Promise<Profile>;
+  renameProfile(id: string, name: string): Promise<void>;
+  /** Deletes a non-active, non-primary profile and its folder. */
+  deleteProfile(id: string): Promise<void>;
+  /** Saves everything, points the app at another vault folder and reopens it. */
+  changeVaultFolder(path: string, mode: "open" | "copy"): Promise<void>;
+  /**
+   * Picks up `yorna.json` / `profiles.json` changes written by another computer
+   * through a synced folder. Returns true when local state was replaced.
+   */
+  checkExternalChanges(): Promise<boolean>;
+  refreshConflicts(): Promise<void>;
+
   setView(view: View): void;
   openNote(id: string): void;
   closeNote(): void;
@@ -46,9 +83,16 @@ interface YornaState {
   /** Persist a column's new order (and status) after a drag. */
   setColumns(columns: Record<NoteStatus, string[]>): void;
 
-  addReminder(input: Omit<Reminder, "id" | "createdAt" | "done">): void;
+  addReminder(input: Pick<Reminder, "date" | "title" | "color" | "time" | "repeat">): void;
   updateReminder(id: string, patch: Partial<Omit<Reminder, "id">>): void;
+  /** Saves edits from the reminder dialog and re-arms the chime if the new time is still ahead. */
+  editReminder(id: string, patch: Pick<Reminder, "date" | "title" | "color" | "time" | "repeat">): void;
+  /** Checks off a one-off reminder, or just `date`'s occurrence of a repeating one. */
+  toggleReminderDone(id: string, date: string): void;
   deleteReminder(id: string): void;
+  /** Reminder shown in the edit dialog, if any. */
+  editingReminderId: string | null;
+  setEditingReminder(id: string | null): void;
 
   startSession(minutes: number, noteId?: string): void;
   pauseSession(): void;
@@ -64,6 +108,52 @@ interface YornaState {
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let initPromise: Promise<void> | null = null;
+/** Script body writes still in flight; a profile switch waits for them before changing folders. */
+const pendingBodySaves = new Set<Promise<unknown>>();
+/** The active profile's `yorna.json` as this device last read or wrote it. */
+let synced: { text: string | null; at: string } = { text: null, at: new Date().toISOString() };
+const markSynced = (text: string | null) => {
+  synced = { text, at: new Date().toISOString() };
+};
+
+type ProfileData = Pick<
+  YornaState,
+  | "notes"
+  | "reminders"
+  | "sessions"
+  | "settings"
+  | "activeSession"
+  | "createdAt"
+  | "view"
+  | "openNoteId"
+  | "promptedNoteIds"
+  | "saveState"
+  | "editingReminderId"
+>;
+
+const emptyProfileData = (): ProfileData => ({
+  notes: [],
+  reminders: [],
+  sessions: [],
+  settings: DEFAULT_SETTINGS,
+  activeSession: undefined,
+  createdAt: new Date().toISOString(),
+  view: "calendar",
+  openNoteId: null,
+  promptedNoteIds: [],
+  saveState: "idle",
+  editingReminderId: null,
+});
+
+const nowHHmm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+/** Fire markers for a reminder whose schedule was just set, so a time already past today doesn't chime. */
+function fireState(r: Pick<Reminder, "date" | "time" | "repeat">, now: Date): Pick<Reminder, "firedAt" | "firedOn"> {
+  const today = dayKey(now);
+  const due = r.time !== undefined && r.time <= nowHHmm(now) && occursOn(r as Reminder, today);
+  if (r.repeat) return { firedAt: undefined, firedOn: due ? today : undefined };
+  return { firedAt: due ? now.toISOString() : undefined, firedOn: undefined };
+}
 
 function snapshot(s: YornaState): VaultIndex {
   return {
@@ -79,9 +169,23 @@ function snapshot(s: YornaState): VaultIndex {
 
 export const useYorna = create<YornaState>((set, get) => {
   async function flush() {
+    saveTimer = undefined;
     set({ saveState: "saving" });
     try {
-      await getVault().writeText(INDEX_FILE, JSON.stringify(snapshot(get()), null, 2));
+      const vault = getVault();
+      const disk = await vault.readText(INDEX_FILE);
+      if (disk !== null && synced.text !== null && disk !== synced.text) {
+        try {
+          const remote = JSON.parse(disk) as VaultIndex;
+          const s = get();
+          set(mergeRemoteIndex({ notes: s.notes, reminders: s.reminders, sessions: s.sessions }, remote, synced.at));
+        } catch {
+          // Half-downloaded by the sync app; the write below replaces it.
+        }
+      }
+      const text = JSON.stringify(snapshot(get()), null, 2);
+      await vault.writeText(INDEX_FILE, text);
+      markSynced(text);
       set({ saveState: "idle" });
     } catch (err) {
       console.error("Failed to save vault index", err);
@@ -103,6 +207,7 @@ export const useYorna = create<YornaState>((set, get) => {
     const vault = getVault();
     try {
       const [raw, location] = await Promise.all([vault.readText(INDEX_FILE), vault.location()]);
+      markSynced(raw);
       if (raw) {
         const data = JSON.parse(raw) as VaultIndex;
         set({
@@ -135,6 +240,64 @@ export const useYorna = create<YornaState>((set, get) => {
     }
   }
 
+  /**
+   * Unmounts the UI, lets the editor's unmount save land, then writes the
+   * index — all while the vault still points at the outgoing profile.
+   */
+  async function leaveProfile() {
+    if (get().status !== "ready") return;
+    const s = get().activeSession;
+    if (s?.runningSince) {
+      set({
+        activeSession: { ...s, accumulatedMs: s.accumulatedMs + (Date.now() - s.runningSince), runningSince: null },
+      });
+    }
+    set({ status: "loading", openNoteId: null });
+    await new Promise((r) => setTimeout(r, 50));
+    await Promise.allSettled([...pendingBodySaves]);
+    clearTimeout(saveTimer);
+    saveTimer = undefined;
+    await flush();
+  }
+
+  async function refreshProfiles() {
+    const registry = await readRegistry();
+    set({ profiles: registry.profiles });
+    return registry;
+  }
+
+  async function bootstrap() {
+    try {
+      set({ status: "loading", error: undefined });
+      const [folder] = await Promise.all([vaultFolder(), get().refreshConflicts()]);
+      set({ vaultFolder: folder });
+      const registry = await refreshProfiles();
+      if (registry.profiles.length <= 1) {
+        await enterProfile(registry.profiles[0]);
+      } else {
+        set({ status: "choose-profile", activeProfileId: null });
+      }
+    } catch (err) {
+      console.error(err);
+      set({ status: "error", error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  async function enterProfile(profile: Profile) {
+    set({ ...emptyProfileData(), status: "loading", activeProfileId: profile.id });
+    forgetCustomSound();
+    setProfileDir(profile.dir);
+    const registry = await readRegistry();
+    if (registry.profiles.length > 1) {
+      const now = new Date().toISOString();
+      registry.lastProfileId = profile.id;
+      registry.profiles = registry.profiles.map((p) => (p.id === profile.id ? { ...p, lastOpenedAt: now } : p));
+      await writeRegistry(registry);
+      set({ profiles: registry.profiles });
+    }
+    await load();
+  }
+
   if (typeof window !== "undefined") {
     window.addEventListener("beforeunload", () => {
       if (saveTimer) {
@@ -146,24 +309,141 @@ export const useYorna = create<YornaState>((set, get) => {
 
   return {
     status: "loading",
-    vaultKind: "browser",
+    vaultKind: getRootVault().kind,
     vaultLocation: "",
-    notes: [],
-    reminders: [],
-    sessions: [],
-    settings: DEFAULT_SETTINGS,
-    createdAt: new Date().toISOString(),
-    view: "calendar",
-    openNoteId: null,
-    promptedNoteIds: [],
-    saveState: "idle",
+    profiles: [],
+    activeProfileId: null,
+    vaultFolder: null,
+    conflicts: [],
+    ...emptyProfileData(),
 
     init() {
       if (!initPromise || get().status === "error") {
-        set({ status: "loading", error: undefined });
-        initPromise = load();
+        initPromise = bootstrap();
       }
       return initPromise;
+    },
+
+    async openProfile(id) {
+      const profile = get().profiles.find((p) => p.id === id);
+      if (!profile) throw new Error("That profile no longer exists.");
+      if (get().status === "ready" && get().activeProfileId === id) return;
+      await leaveProfile();
+      try {
+        await enterProfile(profile);
+      } catch (err) {
+        console.error(err);
+        set({ status: "error", error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+
+    async chooseProfile() {
+      await leaveProfile();
+      set({ ...emptyProfileData(), status: "choose-profile", activeProfileId: null });
+      forgetCustomSound();
+      await refreshProfiles();
+    },
+
+    async createProfile(name) {
+      const trimmed = name.trim();
+      if (!trimmed) throw new Error("Give the profile a name.");
+      const registry = await readRegistry();
+      if (registry.profiles.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
+        throw new Error(`A profile named “${trimmed}” already exists.`);
+      }
+      const profile = makeProfile(trimmed, registry.profiles);
+      const activeId = get().activeProfileId;
+      const now = new Date().toISOString();
+      registry.profiles = [
+        ...registry.profiles.map((p) => (p.id === activeId && !p.lastOpenedAt ? { ...p, lastOpenedAt: now } : p)),
+        profile,
+      ];
+      registry.lastProfileId ??= activeId ?? undefined;
+      await writeRegistry(registry);
+      set({ profiles: registry.profiles });
+      return profile;
+    },
+
+    async renameProfile(id, name) {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      const registry = await readRegistry();
+      registry.profiles = registry.profiles.map((p) => (p.id === id ? { ...p, name: trimmed } : p));
+      await writeRegistry(registry);
+      set({ profiles: registry.profiles });
+    },
+
+    async deleteProfile(id) {
+      if (id === PRIMARY_PROFILE_ID) throw new Error("The first profile owns the vault folder and can't be deleted.");
+      if (id === get().activeProfileId) throw new Error("Switch to another profile before deleting this one.");
+      const registry = await readRegistry();
+      const profile = registry.profiles.find((p) => p.id === id);
+      if (!profile) return;
+      registry.profiles = registry.profiles.filter((p) => p.id !== id);
+      if (registry.lastProfileId === id) registry.lastProfileId = undefined;
+      await writeRegistry(registry);
+      set({ profiles: registry.profiles });
+      if (profile.dir) await getRootVault().removeDir(profile.dir);
+    },
+
+    async changeVaultFolder(path, mode) {
+      const previousProfileId = get().activeProfileId;
+      await leaveProfile();
+      let failure: unknown;
+      try {
+        await setVaultFolder(path, mode);
+      } catch (err) {
+        failure = err;
+      }
+      set({ ...emptyProfileData(), status: "loading", profiles: [], activeProfileId: null });
+      forgetCustomSound();
+      setProfileDir("");
+      initPromise = bootstrap();
+      await initPromise;
+      // A moved vault holds the same profiles, so stay in the one that was open.
+      const keep = (failure || mode === "copy") && get().profiles.some((p) => p.id === previousProfileId);
+      if (keep && get().status === "choose-profile" && previousProfileId) await get().openProfile(previousProfileId);
+      if (failure) throw failure instanceof Error ? failure : new Error(String(failure));
+    },
+
+    async checkExternalChanges() {
+      const busy = () =>
+        get().status !== "ready" ||
+        saveTimer !== undefined ||
+        get().saveState === "saving" ||
+        pendingBodySaves.size > 0;
+      if (busy()) return false;
+      if (await registryChangedOnDisk()) await refreshProfiles();
+      const raw = await getVault().readText(INDEX_FILE);
+      if (raw === null || raw === synced.text || busy()) return false;
+      let data: VaultIndex;
+      try {
+        data = JSON.parse(raw) as VaultIndex;
+      } catch {
+        return false;
+      }
+      forgetCustomSound();
+      set((s) => {
+        const notes = data.notes ?? [];
+        return {
+          notes,
+          reminders: data.reminders ?? [],
+          sessions: data.sessions ?? [],
+          settings: { ...DEFAULT_SETTINGS, ...data.settings },
+          createdAt: data.createdAt ?? s.createdAt,
+          openNoteId: s.openNoteId && notes.some((n) => n.id === s.openNoteId) ? s.openNoteId : null,
+        };
+      });
+      markSynced(raw);
+      return true;
+    },
+
+    async refreshConflicts() {
+      try {
+        set({ conflicts: await vaultConflicts() });
+      } catch (err) {
+        console.warn("Couldn't scan the vault for sync conflicts", err);
+      }
     },
 
     setView(view) {
@@ -219,7 +499,15 @@ export const useYorna = create<YornaState>((set, get) => {
     },
 
     async saveNoteBody(id, html) {
-      await getVault().writeText(notePath(id), html);
+      // A script from another profile must never be written into this one's folder.
+      if (!get().notes.some((n) => n.id === id)) return;
+      const write = getVault().writeText(notePath(id), html);
+      pendingBodySaves.add(write);
+      try {
+        await write;
+      } finally {
+        pendingBodySaves.delete(write);
+      }
       patchNote(id, { ...htmlToExcerpt(html), updatedAt: new Date().toISOString() });
       persist();
     },
@@ -251,15 +539,14 @@ export const useYorna = create<YornaState>((set, get) => {
 
     addReminder(input) {
       const now = new Date();
-      const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-      const alreadyDue = input.time !== undefined && input.date === dayKey(now) && input.time <= hhmm;
       const reminder: Reminder = {
         ...input,
+        repeat: input.repeat || undefined,
         title: input.title.trim(),
         id: newId(),
         done: false,
         createdAt: now.toISOString(),
-        firedAt: alreadyDue ? now.toISOString() : undefined,
+        ...fireState(input, now),
       };
       set((s) => ({ reminders: [...s.reminders, reminder] }));
       persist();
@@ -267,6 +554,40 @@ export const useYorna = create<YornaState>((set, get) => {
     updateReminder(id, patch) {
       set((s) => ({ reminders: s.reminders.map((r) => (r.id === id ? { ...r, ...patch } : r)) }));
       persist();
+    },
+    editReminder(id, patch) {
+      const now = new Date();
+      set((s) => ({
+        reminders: s.reminders.map((r) => {
+          if (r.id !== id) return r;
+          const next: Reminder = { ...r, ...patch, title: patch.title.trim(), repeat: patch.repeat || undefined };
+          const scheduleChanged = r.date !== next.date || r.time !== next.time || r.repeat !== next.repeat;
+          if (!scheduleChanged) return next;
+          return {
+            ...next,
+            ...fireState(next, now),
+            done: next.repeat ? false : r.done,
+            doneDates: next.repeat && r.repeat ? r.doneDates : undefined,
+          };
+        }),
+      }));
+      persist();
+    },
+    toggleReminderDone(id, date) {
+      set((s) => ({
+        reminders: s.reminders.map((r) => {
+          if (r.id !== id) return r;
+          if (!r.repeat) return { ...r, done: !r.done };
+          const dates = new Set(r.doneDates ?? []);
+          if (dates.has(date)) dates.delete(date);
+          else dates.add(date);
+          return { ...r, doneDates: [...dates].sort() };
+        }),
+      }));
+      persist();
+    },
+    setEditingReminder(id) {
+      set({ editingReminderId: id });
     },
     deleteReminder(id) {
       set((s) => ({ reminders: s.reminders.filter((r) => r.id !== id) }));

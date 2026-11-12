@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { FolderOpen, GitBranch, HardDrive, Music, Play, RotateCcw, Upload, User } from "lucide-react";
+import { ExternalLink, GitBranch, Music, Play, RotateCcw, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ProfilesSection } from "@/features/profiles/profiles-section";
 import { playFinishSound } from "@/lib/sound";
 import { useYorna } from "@/lib/store";
+import { Row, Section } from "./section";
+import { openExternal, VaultSection } from "./vault-section";
 
 const MAX_SOUND_BYTES = 8 * 1024 * 1024;
-export const GITHUB_URL = "";
+export const GITHUB_URL = "https://github.com/reaccent/yorna";
 
 async function appVersion() {
   if (isTauri()) {
@@ -21,10 +24,6 @@ async function appVersion() {
 
 export function SettingsView() {
   const settings = useYorna((s) => s.settings);
-  const vaultKind = useYorna((s) => s.vaultKind);
-  const vaultLocation = useYorna((s) => s.vaultLocation);
-  const notesCount = useYorna((s) => s.notes.length);
-  const sessionsCount = useYorna((s) => s.sessions.length);
   const { updateSettings, setCustomSound, clearCustomSound } = useYorna.getState();
   const [version, setVersion] = useState<string>("");
   const [uploading, setUploading] = useState(false);
@@ -65,6 +64,8 @@ export function SettingsView() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 p-4 sm:p-6">
       <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Settings</h1>
+
+      <ProfilesSection />
 
       <Section title="Sessions" description="What the minutes popup preselects when you open a script.">
         <Row label="Default session length">
@@ -160,39 +161,7 @@ export function SettingsView() {
         </Row>
       </Section>
 
-      <Section title="Vault" description="Yorna is local-first: your scripts live on this device.">
-        <Row
-          label={
-            <span className="flex items-center gap-2">
-              <HardDrive className="size-4 text-muted-foreground" />
-              {vaultKind === "filesystem" ? "Vault folder" : "Browser vault (dev mode)"}
-            </span>
-          }
-          hint={<span className="font-mono text-xs break-all">{vaultLocation}</span>}
-        >
-          {vaultKind === "filesystem" && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={async () => {
-                const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
-                await revealItemInDir(vaultLocation).catch((err) => toast.error(String(err)));
-              }}
-            >
-              <FolderOpen className="size-4" /> Show folder
-            </Button>
-          )}
-        </Row>
-        <Row label="Contents">
-          <span className="text-sm text-muted-foreground">
-            {notesCount} script{notesCount === 1 ? "" : "s"} · {sessionsCount} finished session
-            {sessionsCount === 1 ? "" : "s"}
-          </span>
-        </Row>
-        <Row label="Cloud sync" hint="Optional Google Drive sync is planned after the MVP.">
-          <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Coming later</span>
-        </Row>
-      </Section>
+      <VaultSection />
 
       <Section title="About">
         <Row label="Current app version">
@@ -201,63 +170,15 @@ export function SettingsView() {
         <Row
           label={
             <span className="flex items-center gap-2">
-              <User className="size-4 text-muted-foreground" /> Profile
-            </span>
-          }
-          hint="Single-user for now. Switching accounts arrives with multi-profile support."
-        >
-          <span className="text-sm text-muted-foreground">You</span>
-        </Row>
-        <Row
-          label={
-            <span className="flex items-center gap-2">
               <GitBranch className="size-4 text-muted-foreground" /> GitHub page
             </span>
           }
         >
-          {GITHUB_URL ? (
-            <Button variant="ghost" size="sm" asChild>
-              <a href={GITHUB_URL} target="_blank" rel="noreferrer">
-                Open
-              </a>
-            </Button>
-          ) : (
-            <span className="text-sm text-muted-foreground">Not published yet</span>
-          )}
+          <Button variant="ghost" size="sm" onClick={() => void openExternal(GITHUB_URL)}>
+            github.com/reaccent/yorna <ExternalLink className="size-3.5" />
+          </Button>
         </Row>
       </Section>
-    </div>
-  );
-}
-
-function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-2xl border bg-surface">
-      <header className="px-5 pt-4 pb-2">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
-      </header>
-      <div className="divide-y">{children}</div>
-    </section>
-  );
-}
-
-function Row({
-  label,
-  hint,
-  children,
-}: {
-  label: React.ReactNode;
-  hint?: React.ReactNode;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        <div className="text-sm font-medium">{label}</div>
-        {hint && <div className="mt-0.5 text-sm text-muted-foreground">{hint}</div>}
-      </div>
-      <div className="shrink-0">{children}</div>
     </div>
   );
 }

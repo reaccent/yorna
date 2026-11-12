@@ -1,13 +1,34 @@
 import { useMemo, useState } from "react";
-import { addMonths, format, formatDistanceToNow, isSameMonth, isToday, isTomorrow, startOfMonth } from "date-fns";
+import {
+  addDays,
+  addMonths,
+  endOfMonth,
+  endOfWeek,
+  format,
+  formatDistanceToNow,
+  isSameMonth,
+  isToday,
+  isTomorrow,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
 import { ArrowRight, BellRing, ChevronLeft, ChevronRight, FilePlus2, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { compareReminders, dayKey, monthStats, parseDayKey, remindersByDay, workedDaySet } from "@/lib/domain";
+import {
+  compareReminders,
+  dayKey,
+  monthStats,
+  occurrencesBetween,
+  parseDayKey,
+  remindersByDay,
+  workedDaySet,
+} from "@/lib/domain";
 import { useYorna } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { MonthGrid } from "./month-grid";
 import { ReminderBar } from "./reminder-bar";
+import { ReminderEditDialog } from "./reminder-edit-dialog";
 import { ReminderItem } from "./reminder-item";
 
 export function CalendarView() {
@@ -18,7 +39,15 @@ export function CalendarView() {
   const [barOpen, setBarOpen] = useState(false);
   const [barDate, setBarDate] = useState(() => dayKey(new Date()));
 
-  const byDay = useMemo(() => remindersByDay(reminders), [reminders]);
+  const byDay = useMemo(
+    () =>
+      remindersByDay(
+        reminders,
+        dayKey(startOfWeek(startOfMonth(month), { weekStartsOn: 1 })),
+        dayKey(endOfWeek(endOfMonth(month), { weekStartsOn: 1 })),
+      ),
+    [reminders, month],
+  );
   const worked = useMemo(() => workedDaySet(sessions), [sessions]);
   const since = useMemo(() => new Date(createdAt), [createdAt]);
   const stats = monthStats(month, worked, since);
@@ -85,6 +114,7 @@ export function CalendarView() {
           <Upcoming />
         </aside>
       </div>
+      <ReminderEditDialog />
     </div>
   );
 }
@@ -150,9 +180,12 @@ function Stat({
 function Upcoming() {
   const reminders = useYorna((s) => s.reminders);
   const today = dayKey(new Date());
-  const upcoming = reminders
-    .filter((r) => r.date >= today && !r.done)
+  const seen = new Set<string>();
+  // Repeating reminders only show their next open occurrence here.
+  const upcoming = occurrencesBetween(reminders, today, dayKey(addDays(new Date(), 400)))
+    .filter((r) => !r.done)
     .sort(compareReminders)
+    .filter((r) => !seen.has(r.id) && seen.add(r.id))
     .slice(0, 12);
   const groups = new Map<string, typeof upcoming>();
   for (const r of upcoming) groups.set(r.date, [...(groups.get(r.date) ?? []), r]);

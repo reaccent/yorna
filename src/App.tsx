@@ -1,12 +1,17 @@
 import { useEffect } from "react";
 import { CalendarDays, Loader2, NotebookPen, Settings2, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
 import { BackgroundAlerts } from "@/components/background-alerts";
 import { SessionStar } from "@/components/session-star";
+import { VaultWatcher } from "@/components/vault-watcher";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { YornaMark } from "@/components/yorna-mark";
 import { CalendarView } from "@/features/calendar/calendar-view";
 import { NotesView } from "@/features/notes/notes-view";
+import { ProfileAvatar } from "@/features/profiles/profile-avatar";
+import { ProfileGate } from "@/features/profiles/profile-gate";
 import { SettingsView } from "@/features/settings/settings-view";
 import { useYorna } from "@/lib/store";
 import type { View } from "@/lib/types";
@@ -30,9 +35,15 @@ export default function App() {
   const view = useYorna((s) => s.view);
   const init = useYorna((s) => s.init);
 
+  const activeProfileId = useYorna((s) => s.activeProfileId);
+
   useEffect(() => {
     void init();
   }, [init]);
+
+  useEffect(() => {
+    toast.dismiss();
+  }, [activeProfileId]);
 
   if (status === "loading") {
     return (
@@ -58,6 +69,15 @@ export default function App() {
     );
   }
 
+  if (status === "choose-profile") {
+    return (
+      <>
+        <ProfileGate />
+        <Toaster position="top-center" />
+      </>
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full flex-col">
@@ -70,6 +90,7 @@ export default function App() {
         <BottomNav />
       </div>
       <BackgroundAlerts />
+      <VaultWatcher />
       <Toaster position="top-center" />
     </TooltipProvider>
   );
@@ -90,24 +111,32 @@ function TopBar({ title }: { title: string }) {
           </span>
         )}
       </div>
-      <SessionStar />
+      <div className="flex items-center gap-2">
+        <SessionStar />
+        <ProfileChip />
+      </div>
     </header>
   );
 }
 
-function YornaMark() {
+/** Only shown once there is someone to switch to. */
+function ProfileChip() {
+  const profiles = useYorna((s) => s.profiles);
+  const active = useYorna((s) => s.profiles.find((p) => p.id === s.activeProfileId));
+  if (!active || profiles.length < 2) return null;
   return (
-    <svg viewBox="0 0 24 24" className="size-6" aria-hidden>
-      <rect x="1" y="1" width="22" height="22" rx="7" fill="var(--star)" />
-      <path
-        d="M7.5 7l4.5 6 4.5-6M12 13v4.5"
-        fill="none"
-        stroke="var(--star-foreground)"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => void useYorna.getState().chooseProfile()}
+          className="rounded-full p-0.5 transition-colors hover:bg-accent"
+          aria-label={`Profile: ${active.name}. Switch profile`}
+        >
+          <ProfileAvatar profile={active} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{active.name} · switch profile</TooltipContent>
+    </Tooltip>
   );
 }
 

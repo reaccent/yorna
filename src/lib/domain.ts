@@ -1,4 +1,14 @@
-import { eachDayOfInterval, endOfMonth, format, isAfter, isBefore, startOfDay, startOfMonth } from "date-fns";
+import {
+  addDays,
+  eachDayOfInterval,
+  endOfMonth,
+  format,
+  getDaysInMonth,
+  isAfter,
+  isBefore,
+  startOfDay,
+  startOfMonth,
+} from "date-fns";
 import type { ActiveSession, Reminder, SessionRecord } from "./types";
 
 export const dayKey = (d: Date) => format(d, "yyyy-MM-dd");
@@ -63,9 +73,44 @@ export function monthStats(month: Date, worked: Set<string>, since: Date, now = 
   };
 }
 
-export function remindersByDay(reminders: Reminder[]): Map<string, Reminder[]> {
-  const map = new Map<string, Reminder[]>();
+export function occursOn(r: Reminder, key: string): boolean {
+  if (!r.repeat) return r.date === key;
+  if (key < r.date) return false;
+  if (r.repeat === "daily") return true;
+  const start = parseDayKey(r.date);
+  const day = parseDayKey(key);
+  if (r.repeat === "weekly") return start.getDay() === day.getDay();
+  return day.getDate() === Math.min(start.getDate(), getDaysInMonth(day));
+}
+
+export function isDoneOn(r: Reminder, key: string): boolean {
+  return r.repeat ? (r.doneDates ?? []).includes(key) : r.done;
+}
+
+/**
+ * Every occurrence between two days (inclusive). A repeating reminder appears
+ * once per matching day, as a copy whose `date` is that day and whose `done`
+ * reflects that day; its `id` stays the series id.
+ */
+export function occurrencesBetween(reminders: Reminder[], startKey: string, endKey: string): Reminder[] {
+  const out: Reminder[] = [];
   for (const r of reminders) {
+    if (!r.repeat) {
+      if (r.date >= startKey && r.date <= endKey) out.push(r);
+      continue;
+    }
+    if (r.date > endKey) continue;
+    let d = parseDayKey(r.date > startKey ? r.date : startKey);
+    for (let key = dayKey(d); key <= endKey; d = addDays(d, 1), key = dayKey(d)) {
+      if (occursOn(r, key)) out.push({ ...r, date: key, done: isDoneOn(r, key) });
+    }
+  }
+  return out;
+}
+
+export function remindersByDay(reminders: Reminder[], startKey: string, endKey: string): Map<string, Reminder[]> {
+  const map = new Map<string, Reminder[]>();
+  for (const r of occurrencesBetween(reminders, startKey, endKey)) {
     const list = map.get(r.date) ?? [];
     list.push(r);
     map.set(r.date, list);

@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useYorna } from "@/lib/store";
-import { REMINDER_COLORS, type ReminderColor } from "@/lib/types";
+import { REMINDER_COLORS, type ReminderColor, type ReminderRepeat } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { colorHex } from "./reminder-item";
+import { RepeatSelect } from "./repeat";
 
 interface ReminderBarProps {
   open: boolean;
@@ -15,13 +16,14 @@ interface ReminderBarProps {
   onDateChange(date: string): void;
 }
 
-/** "New reminder" create bar: Date | color | time | title. */
+/** "New reminder" create bar: Date | color | time | repeat | title. */
 export function ReminderBar({ open, onOpenChange, date, onDateChange }: ReminderBarProps) {
   const addReminder = useYorna((s) => s.addReminder);
   const [title, setTitle] = useState("");
   const [time, setTime] = useState("");
   const [color, setColor] = useState<ReminderColor>("amber");
   const [colorOpen, setColorOpen] = useState(false);
+  const [repeat, setRepeat] = useState<ReminderRepeat | undefined>();
   const titleRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -38,8 +40,9 @@ export function ReminderBar({ open, onOpenChange, date, onDateChange }: Reminder
 
   const submit = () => {
     if (!title.trim() || !date) return;
-    addReminder({ date, title, color, time: time || undefined });
+    addReminder({ date, title, color, time: time || undefined, repeat });
     setTitle("");
+    setRepeat(undefined);
     titleRef.current?.focus();
   };
 
@@ -108,6 +111,8 @@ export function ReminderBar({ open, onOpenChange, date, onDateChange }: Reminder
         title="Optional time — Yorna chimes when it's due"
         className="h-9 rounded-lg bg-muted/60 px-2 text-sm text-foreground [color-scheme:dark] outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       />
+
+      <RepeatSelect value={repeat} onChange={setRepeat} date={date} compact />
 
       <Input
         ref={titleRef}
