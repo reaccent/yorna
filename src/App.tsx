@@ -3,6 +3,7 @@ import { CalendarDays, Loader2, NotebookPen, Settings2, TriangleAlert } from "lu
 import { toast } from "sonner";
 import { BackgroundAlerts } from "@/components/background-alerts";
 import { SessionStar } from "@/components/session-star";
+import { VaultWatcher } from "@/components/vault-watcher";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -89,6 +90,7 @@ export default function App() {
         <BottomNav />
       </div>
       <BackgroundAlerts />
+      <VaultWatcher />
       <Toaster position="top-center" />
     </TooltipProvider>
   );

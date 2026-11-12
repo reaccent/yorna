@@ -12,8 +12,12 @@ function primaryProfile(createdAt: string): Profile {
   return { id: PRIMARY_PROFILE_ID, name: "You", dir: "", color: "amber", createdAt };
 }
 
+/** `profiles.json` as this device last read or wrote it. */
+let lastSeen: string | null = null;
+
 export async function readRegistry(): Promise<ProfileRegistry> {
   const raw = await getRootVault().readText(PROFILES_FILE);
+  lastSeen = raw;
   if (raw) {
     const data = JSON.parse(raw) as ProfileRegistry;
     if (Array.isArray(data.profiles) && data.profiles.length) return data;
@@ -22,7 +26,13 @@ export async function readRegistry(): Promise<ProfileRegistry> {
 }
 
 export async function writeRegistry(registry: ProfileRegistry) {
-  await getRootVault().writeText(PROFILES_FILE, JSON.stringify(registry, null, 2));
+  const text = JSON.stringify(registry, null, 2);
+  await getRootVault().writeText(PROFILES_FILE, text);
+  lastSeen = text;
+}
+
+export async function registryChangedOnDisk() {
+  return (await getRootVault().readText(PROFILES_FILE)) !== lastSeen;
 }
 
 function slug(name: string) {

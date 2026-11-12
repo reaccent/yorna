@@ -49,7 +49,11 @@ function scoped(inner: VaultFS, dir: string): VaultFS {
   const at = (path: string) => `${dir}/${path}`;
   return {
     kind: inner.kind,
-    location: async () => `${await inner.location()}/${dir}`,
+    location: async () => {
+      const base = await inner.location();
+      const s = inner.kind === "filesystem" && base.includes("\\") ? "\\" : "/";
+      return `${base}${s}${dir.split("/").join(s)}`;
+    },
     readText: (p) => inner.readText(at(p)),
     writeText: (p, d) => inner.writeText(at(p), d),
     readBytes: (p) => inner.readBytes(at(p)),

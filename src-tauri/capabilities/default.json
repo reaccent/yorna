@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Yorna main window: vault read/write inside AppData, image/sound pickers, reveal vault folder",
+  "description": "Yorna main window: vault read/write (AppData by default; a user-chosen vault folder is added to the fs scope at runtime by the Rust shell), image/sound/folder pickers, reveal vault folder, open links",
   "windows": ["main"],
   "permissions": [
     "core:default",

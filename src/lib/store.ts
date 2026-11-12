@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { dayKey, htmlToExcerpt, newId } from "./domain";
-import { makeProfile, PRIMARY_PROFILE_ID, readRegistry, writeRegistry } from "./profiles";
+import { makeProfile, PRIMARY_PROFILE_ID, readRegistry, registryChangedOnDisk, writeRegistry } from "./profiles";
 import { forgetCustomSound } from "./sound";
+import { mergeRemoteIndex } from "./sync";
 import type {
   ActiveSession,
   NoteMeta,
@@ -14,6 +15,7 @@ import type {
   View,
 } from "./types";
 import { getRootVault, getVault, INDEX_FILE, notePath, setProfileDir } from "./vault";
+import { setVaultFolder, vaultConflicts, vaultFolder, type VaultFolder } from "./vault/folder";
 
 const DEFAULT_SETTINGS: Settings = {
   defaultSessionMinutes: 30,
@@ -32,6 +34,10 @@ interface YornaState {
 
   profiles: Profile[];
   activeProfileId: string | null;
+  /** Desktop only: the vault folder and whether it is the default location. */
+  vaultFolder: VaultFolder | null;
+  /** Conflict copies a sync app left in the vault folder. */
+  conflicts: string[];
 
   notes: NoteMeta[];
   reminders: Reminder[];
@@ -55,6 +61,14 @@ interface YornaState {
   renameProfile(id: string, name: string): Promise<void>;
   /** Deletes a non-active, non-primary profile and its folder. */
   deleteProfile(id: string): Promise<void>;
+  /** Saves everything, points the app at another vault folder and reopens it. */
+  changeVaultFolder(path: string, mode: "open" | "copy"): Promise<void>;
+  /**
+   * Picks up `yorna.json` / `profiles.json` changes written by another computer
+   * through a synced folder. Returns true when local state was replaced.
+   */
+  checkExternalChanges(): Promise<boolean>;
+  refreshConflicts(): Promise<void>;
 
   setView(view: View): void;
   openNote(id: string): void;
@@ -89,6 +103,11 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let initPromise: Promise<void> | null = null;
 /** Script body writes still in flight; a profile switch waits for them before changing folders. */
 const pendingBodySaves = new Set<Promise<unknown>>();
+/** The active profile's `yorna.json` as this device last read or wrote it. */
+let synced: { text: string | null; at: string } = { text: null, at: new Date().toISOString() };
+const markSynced = (text: string | null) => {
+  synced = { text, at: new Date().toISOString() };
+};
 
 type ProfileData = Pick<
   YornaState,
@@ -131,9 +150,23 @@ function snapshot(s: YornaState): VaultIndex {
 
 export const useYorna = create<YornaState>((set, get) => {
   async function flush() {
+    saveTimer = undefined;
     set({ saveState: "saving" });
     try {
-      await getVault().writeText(INDEX_FILE, JSON.stringify(snapshot(get()), null, 2));
+      const vault = getVault();
+      const disk = await vault.readText(INDEX_FILE);
+      if (disk !== null && synced.text !== null && disk !== synced.text) {
+        try {
+          const remote = JSON.parse(disk) as VaultIndex;
+          const s = get();
+          set(mergeRemoteIndex({ notes: s.notes, reminders: s.reminders, sessions: s.sessions }, remote, synced.at));
+        } catch {
+          // Half-downloaded by the sync app; the write below replaces it.
+        }
+      }
+      const text = JSON.stringify(snapshot(get()), null, 2);
+      await vault.writeText(INDEX_FILE, text);
+      markSynced(text);
       set({ saveState: "idle" });
     } catch (err) {
       console.error("Failed to save vault index", err);
@@ -155,6 +188,7 @@ export const useYorna = create<YornaState>((set, get) => {
     const vault = getVault();
     try {
       const [raw, location] = await Promise.all([vault.readText(INDEX_FILE), vault.location()]);
+      markSynced(raw);
       if (raw) {
         const data = JSON.parse(raw) as VaultIndex;
         set({
@@ -216,6 +250,8 @@ export const useYorna = create<YornaState>((set, get) => {
   async function bootstrap() {
     try {
       set({ status: "loading", error: undefined });
+      const [folder] = await Promise.all([vaultFolder(), get().refreshConflicts()]);
+      set({ vaultFolder: folder });
       const registry = await refreshProfiles();
       if (registry.profiles.length <= 1) {
         await enterProfile(registry.profiles[0]);
@@ -258,6 +294,8 @@ export const useYorna = create<YornaState>((set, get) => {
     vaultLocation: "",
     profiles: [],
     activeProfileId: null,
+    vaultFolder: null,
+    conflicts: [],
     ...emptyProfileData(),
 
     init() {
@@ -327,6 +365,66 @@ export const useYorna = create<YornaState>((set, get) => {
       await writeRegistry(registry);
       set({ profiles: registry.profiles });
       if (profile.dir) await getRootVault().removeDir(profile.dir);
+    },
+
+    async changeVaultFolder(path, mode) {
+      const previousProfileId = get().activeProfileId;
+      await leaveProfile();
+      let failure: unknown;
+      try {
+        await setVaultFolder(path, mode);
+      } catch (err) {
+        failure = err;
+      }
+      set({ ...emptyProfileData(), status: "loading", profiles: [], activeProfileId: null });
+      forgetCustomSound();
+      setProfileDir("");
+      initPromise = bootstrap();
+      await initPromise;
+      // A moved vault holds the same profiles, so stay in the one that was open.
+      const keep = (failure || mode === "copy") && get().profiles.some((p) => p.id === previousProfileId);
+      if (keep && get().status === "choose-profile" && previousProfileId) await get().openProfile(previousProfileId);
+      if (failure) throw failure instanceof Error ? failure : new Error(String(failure));
+    },
+
+    async checkExternalChanges() {
+      const busy = () =>
+        get().status !== "ready" ||
+        saveTimer !== undefined ||
+        get().saveState === "saving" ||
+        pendingBodySaves.size > 0;
+      if (busy()) return false;
+      if (await registryChangedOnDisk()) await refreshProfiles();
+      const raw = await getVault().readText(INDEX_FILE);
+      if (raw === null || raw === synced.text || busy()) return false;
+      let data: VaultIndex;
+      try {
+        data = JSON.parse(raw) as VaultIndex;
+      } catch {
+        return false;
+      }
+      forgetCustomSound();
+      set((s) => {
+        const notes = data.notes ?? [];
+        return {
+          notes,
+          reminders: data.reminders ?? [],
+          sessions: data.sessions ?? [],
+          settings: { ...DEFAULT_SETTINGS, ...data.settings },
+          createdAt: data.createdAt ?? s.createdAt,
+          openNoteId: s.openNoteId && notes.some((n) => n.id === s.openNoteId) ? s.openNoteId : null,
+        };
+      });
+      markSynced(raw);
+      return true;
+    },
+
+    async refreshConflicts() {
+      try {
+        set({ conflicts: await vaultConflicts() });
+      } catch (err) {
+        console.warn("Couldn't scan the vault for sync conflicts", err);
+      }
     },
 
     setView(view) {

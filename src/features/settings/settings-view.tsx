@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { FolderOpen, GitBranch, HardDrive, Music, Play, RotateCcw, Upload } from "lucide-react";
+import { GitBranch, Music, Play, RotateCcw, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { ProfilesSection } from "@/features/profiles/profiles-section";
 import { playFinishSound } from "@/lib/sound";
 import { useYorna } from "@/lib/store";
 import { Row, Section } from "./section";
+import { VaultSection } from "./vault-section";
 
 const MAX_SOUND_BYTES = 8 * 1024 * 1024;
 export const GITHUB_URL = "";
@@ -23,10 +24,6 @@ async function appVersion() {
 
 export function SettingsView() {
   const settings = useYorna((s) => s.settings);
-  const vaultKind = useYorna((s) => s.vaultKind);
-  const vaultLocation = useYorna((s) => s.vaultLocation);
-  const notesCount = useYorna((s) => s.notes.length);
-  const sessionsCount = useYorna((s) => s.sessions.length);
   const { updateSettings, setCustomSound, clearCustomSound } = useYorna.getState();
   const [version, setVersion] = useState<string>("");
   const [uploading, setUploading] = useState(false);
@@ -164,42 +161,7 @@ export function SettingsView() {
         </Row>
       </Section>
 
-      <Section
-        title="Vault"
-        description="Yorna is local-first: this profile's scripts live in this folder on your device."
-      >
-        <Row
-          label={
-            <span className="flex items-center gap-2">
-              <HardDrive className="size-4 text-muted-foreground" />
-              {vaultKind === "filesystem" ? "Profile folder" : "Browser vault (dev mode)"}
-            </span>
-          }
-          hint={<span className="font-mono text-xs break-all">{vaultLocation}</span>}
-        >
-          {vaultKind === "filesystem" && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={async () => {
-                const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
-                await revealItemInDir(vaultLocation).catch((err) => toast.error(String(err)));
-              }}
-            >
-              <FolderOpen className="size-4" /> Show folder
-            </Button>
-          )}
-        </Row>
-        <Row label="Contents">
-          <span className="text-sm text-muted-foreground">
-            {notesCount} script{notesCount === 1 ? "" : "s"} · {sessionsCount} finished session
-            {sessionsCount === 1 ? "" : "s"}
-          </span>
-        </Row>
-        <Row label="Cloud sync" hint="Optional Google Drive sync is planned after the MVP.">
-          <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Coming later</span>
-        </Row>
-      </Section>
+      <VaultSection />
 
       <Section title="About">
         <Row label="Current app version">
