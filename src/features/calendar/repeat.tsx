@@ -49,7 +49,8 @@ export function RepeatSelect({
           <SelectValue />
         )}
       </SelectTrigger>
-      <SelectContent>
+      {/* The compact trigger has no SelectValue, which item-aligned positioning needs to place the list. */}
+      <SelectContent position={compact ? "popper" : "item-aligned"} align="start">
         {(["none", "daily", "weekly", "monthly"] as const).map((r) => (
           <SelectItem key={r} value={r}>
             {repeatLabel(r === "none" ? undefined : r, date)}
