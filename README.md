@@ -81,6 +81,7 @@ src/
     ├── sound.ts               # default chime (Web Audio) + custom sound playback
     └── vault/                 # VaultFS: Tauri filesystem or IndexedDB backend; vault folder commands
 src-tauri/                     # Rust shell: vault folder config/scope/copy/conflict scan; fs, dialog, opener plugins
+website/                       # marketing site (separate Vite package) — see website/README.md
 ```
 
 ## Not in this slice yet
