@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { FolderOpen, GitBranch, HardDrive, Music, Play, RotateCcw, Upload, User } from "lucide-react";
+import { FolderOpen, GitBranch, HardDrive, Music, Play, RotateCcw, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ProfilesSection } from "@/features/profiles/profiles-section";
 import { playFinishSound } from "@/lib/sound";
 import { useYorna } from "@/lib/store";
+import { Row, Section } from "./section";
 
 const MAX_SOUND_BYTES = 8 * 1024 * 1024;
 export const GITHUB_URL = "";
@@ -65,6 +67,8 @@ export function SettingsView() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 p-4 sm:p-6">
       <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Settings</h1>
+
+      <ProfilesSection />
 
       <Section title="Sessions" description="What the minutes popup preselects when you open a script.">
         <Row label="Default session length">
@@ -160,12 +164,15 @@ export function SettingsView() {
         </Row>
       </Section>
 
-      <Section title="Vault" description="Yorna is local-first: your scripts live on this device.">
+      <Section
+        title="Vault"
+        description="Yorna is local-first: this profile's scripts live in this folder on your device."
+      >
         <Row
           label={
             <span className="flex items-center gap-2">
               <HardDrive className="size-4 text-muted-foreground" />
-              {vaultKind === "filesystem" ? "Vault folder" : "Browser vault (dev mode)"}
+              {vaultKind === "filesystem" ? "Profile folder" : "Browser vault (dev mode)"}
             </span>
           }
           hint={<span className="font-mono text-xs break-all">{vaultLocation}</span>}
@@ -201,16 +208,6 @@ export function SettingsView() {
         <Row
           label={
             <span className="flex items-center gap-2">
-              <User className="size-4 text-muted-foreground" /> Profile
-            </span>
-          }
-          hint="Single-user for now. Switching accounts arrives with multi-profile support."
-        >
-          <span className="text-sm text-muted-foreground">You</span>
-        </Row>
-        <Row
-          label={
-            <span className="flex items-center gap-2">
               <GitBranch className="size-4 text-muted-foreground" /> GitHub page
             </span>
           }
@@ -226,38 +223,6 @@ export function SettingsView() {
           )}
         </Row>
       </Section>
-    </div>
-  );
-}
-
-function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-2xl border bg-surface">
-      <header className="px-5 pt-4 pb-2">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
-      </header>
-      <div className="divide-y">{children}</div>
-    </section>
-  );
-}
-
-function Row({
-  label,
-  hint,
-  children,
-}: {
-  label: React.ReactNode;
-  hint?: React.ReactNode;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        <div className="text-sm font-medium">{label}</div>
-        {hint && <div className="mt-0.5 text-sm text-muted-foreground">{hint}</div>}
-      </div>
-      <div className="shrink-0">{children}</div>
     </div>
   );
 }

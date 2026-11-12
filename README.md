@@ -11,7 +11,7 @@ Built with **Tauri 2 + React + TypeScript**, Tailwind CSS v4 and shadcn/ui. Wind
 - **Image references, not image pastes** — the image button links a file path (with a native file picker on desktop) or a URL. Only the reference is stored. Pasting or dropping image files into a script is blocked.
 - **Sessions** — opening a script asks how long you'll work: 30 minutes by default, with 15, 60 or Custom. The star ring fills as you go, and the top-right star shows minutes left (click it for progress, pause/resume, end early). **A day counts as worked only when a session finishes.** Finishing plays the goal sound.
 - **Settings** — default session length, upload/preview/reset a **custom goal-finish sound** (stored in the vault), volume, vault location, and the current app version.
-- **Single user** — the profile picker is skipped for the MVP.
+- **Profiles** — with one profile Yorna opens straight to the calendar. Create more in **Settings → Profiles** (or from the picker); once there are two or more, launch shows **Who's writing?** and the top-right avatar or **Switch accounts** returns to it. Each profile has its own scripts, reminders, sessions, settings and goal sound.
 
 ## Local-first vault
 
@@ -19,10 +19,17 @@ Everything is stored as plain files that you own:
 
 ```
 <AppData>/app.yorna.desktop/vault/
-├── yorna.json          # board order, reminders, finished sessions, settings
-├── notes/<id>.html     # one file per script (TipTap HTML)
-└── sounds/finish.*     # custom goal sound, if uploaded
+├── profiles.json       # profile list (written once a second profile exists)
+├── yorna.json          # first profile: board order, reminders, finished sessions, settings
+├── notes/<id>.html     # first profile: one file per script (TipTap HTML)
+├── sounds/finish.*     # first profile: custom goal sound, if uploaded
+└── profiles/<name>-<id>/
+    ├── yorna.json      # every other profile has the same layout in its own folder
+    ├── notes/
+    └── sounds/
 ```
+
+The first profile keeps the vault root, so vaults from before profiles existed open unchanged. It can be renamed but not deleted; deleting another profile removes its folder.
 
 | OS      | Vault location                                          |
 | ------- | ------------------------------------------------------- |
@@ -61,9 +68,11 @@ src/
 ├── components/                # session star + dialog, star ring, background alerts, shadcn/ui
 ├── features/calendar/         # month grid, reminder bar, upcoming list
 ├── features/notes/            # Kanban board, cards, TipTap editor, image references
+├── features/profiles/         # profile picker, avatar, Settings → Profiles
 ├── features/settings/         # settings screen
 └── lib/
-    ├── store.ts               # zustand store, vault load/save
+    ├── store.ts               # zustand store, vault load/save, profile switching
+    ├── profiles.ts            # profiles.json registry
     ├── domain.ts              # month stats, session math, helpers
     ├── sound.ts               # default chime (Web Audio) + custom sound playback
     └── vault/                 # VaultFS: Tauri filesystem or IndexedDB backend
@@ -73,6 +82,5 @@ src-tauri/                     # Rust shell: fs, dialog, opener plugins; asset p
 ## Not in this slice yet
 
 - Google Drive (or other) sync. The vault is plain files, so a synced-folder approach or real Drive sync can come later.
-- Multiple profiles and the profile picker.
 - Linux polish, code signing and auto-update.
 - Recurring reminders and reminder editing beyond done/delete.

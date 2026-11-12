@@ -57,5 +57,8 @@ export function createTauriVault(): VaultFS {
     async remove(path) {
       if (await exists(full(path), { baseDir })) await remove(full(path), { baseDir });
     },
+    async removeDir(path) {
+      if (await exists(full(path), { baseDir })) await remove(full(path), { baseDir, recursive: true });
+    },
   };
 }

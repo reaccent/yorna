@@ -86,4 +86,21 @@ export interface VaultIndex {
   activeSession?: ActiveSession;
 }
 
+export interface Profile {
+  id: string;
+  name: string;
+  /** Folder inside the vault holding this profile's data; `""` is the vault root. */
+  dir: string;
+  color: ReminderColor;
+  createdAt: string;
+  lastOpenedAt?: string;
+}
+
+/** `profiles.json` at the vault root. */
+export interface ProfileRegistry {
+  schema: 1;
+  profiles: Profile[];
+  lastProfileId?: string;
+}
+
 export type View = "calendar" | "notes" | "settings";
