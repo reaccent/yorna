@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { CalendarDays, Loader2, NotebookPen, Settings2, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
 import { BackgroundAlerts } from "@/components/background-alerts";
 import { SessionStar } from "@/components/session-star";
 import { Button } from "@/components/ui/button";
@@ -33,9 +34,15 @@ export default function App() {
   const view = useYorna((s) => s.view);
   const init = useYorna((s) => s.init);
 
+  const activeProfileId = useYorna((s) => s.activeProfileId);
+
   useEffect(() => {
     void init();
   }, [init]);
+
+  useEffect(() => {
+    toast.dismiss();
+  }, [activeProfileId]);
 
   if (status === "loading") {
     return (
