@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { GitBranch, Music, Play, RotateCcw, Upload } from "lucide-react";
+import { ExternalLink, GitBranch, Music, Play, RotateCcw, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,10 +9,10 @@ import { ProfilesSection } from "@/features/profiles/profiles-section";
 import { playFinishSound } from "@/lib/sound";
 import { useYorna } from "@/lib/store";
 import { Row, Section } from "./section";
-import { VaultSection } from "./vault-section";
+import { openExternal, VaultSection } from "./vault-section";
 
 const MAX_SOUND_BYTES = 8 * 1024 * 1024;
-export const GITHUB_URL = "";
+export const GITHUB_URL = "https://github.com/reaccent/yorna";
 
 async function appVersion() {
   if (isTauri()) {
@@ -174,15 +174,9 @@ export function SettingsView() {
             </span>
           }
         >
-          {GITHUB_URL ? (
-            <Button variant="ghost" size="sm" asChild>
-              <a href={GITHUB_URL} target="_blank" rel="noreferrer">
-                Open
-              </a>
-            </Button>
-          ) : (
-            <span className="text-sm text-muted-foreground">Not published yet</span>
-          )}
+          <Button variant="ghost" size="sm" onClick={() => void openExternal(GITHUB_URL)}>
+            github.com/reaccent/yorna <ExternalLink className="size-3.5" />
+          </Button>
         </Row>
       </Section>
     </div>

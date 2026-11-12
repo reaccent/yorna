@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { dayKey, htmlToExcerpt, newId } from "./domain";
+import { dayKey, htmlToExcerpt, newId, occursOn } from "./domain";
 import { makeProfile, PRIMARY_PROFILE_ID, readRegistry, registryChangedOnDisk, writeRegistry } from "./profiles";
 import { forgetCustomSound } from "./sound";
 import { mergeRemoteIndex } from "./sync";
@@ -83,9 +83,16 @@ interface YornaState {
   /** Persist a column's new order (and status) after a drag. */
   setColumns(columns: Record<NoteStatus, string[]>): void;
 
-  addReminder(input: Omit<Reminder, "id" | "createdAt" | "done">): void;
+  addReminder(input: Pick<Reminder, "date" | "title" | "color" | "time" | "repeat">): void;
   updateReminder(id: string, patch: Partial<Omit<Reminder, "id">>): void;
+  /** Saves edits from the reminder dialog and re-arms the chime if the new time is still ahead. */
+  editReminder(id: string, patch: Pick<Reminder, "date" | "title" | "color" | "time" | "repeat">): void;
+  /** Checks off a one-off reminder, or just `date`'s occurrence of a repeating one. */
+  toggleReminderDone(id: string, date: string): void;
   deleteReminder(id: string): void;
+  /** Reminder shown in the edit dialog, if any. */
+  editingReminderId: string | null;
+  setEditingReminder(id: string | null): void;
 
   startSession(minutes: number, noteId?: string): void;
   pauseSession(): void;
@@ -121,6 +128,7 @@ type ProfileData = Pick<
   | "openNoteId"
   | "promptedNoteIds"
   | "saveState"
+  | "editingReminderId"
 >;
 
 const emptyProfileData = (): ProfileData => ({
@@ -134,7 +142,18 @@ const emptyProfileData = (): ProfileData => ({
   openNoteId: null,
   promptedNoteIds: [],
   saveState: "idle",
+  editingReminderId: null,
 });
+
+const nowHHmm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+/** Fire markers for a reminder whose schedule was just set, so a time already past today doesn't chime. */
+function fireState(r: Pick<Reminder, "date" | "time" | "repeat">, now: Date): Pick<Reminder, "firedAt" | "firedOn"> {
+  const today = dayKey(now);
+  const due = r.time !== undefined && r.time <= nowHHmm(now) && occursOn(r as Reminder, today);
+  if (r.repeat) return { firedAt: undefined, firedOn: due ? today : undefined };
+  return { firedAt: due ? now.toISOString() : undefined, firedOn: undefined };
+}
 
 function snapshot(s: YornaState): VaultIndex {
   return {
@@ -520,15 +539,14 @@ export const useYorna = create<YornaState>((set, get) => {
 
     addReminder(input) {
       const now = new Date();
-      const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-      const alreadyDue = input.time !== undefined && input.date === dayKey(now) && input.time <= hhmm;
       const reminder: Reminder = {
         ...input,
+        repeat: input.repeat || undefined,
         title: input.title.trim(),
         id: newId(),
         done: false,
         createdAt: now.toISOString(),
-        firedAt: alreadyDue ? now.toISOString() : undefined,
+        ...fireState(input, now),
       };
       set((s) => ({ reminders: [...s.reminders, reminder] }));
       persist();
@@ -536,6 +554,40 @@ export const useYorna = create<YornaState>((set, get) => {
     updateReminder(id, patch) {
       set((s) => ({ reminders: s.reminders.map((r) => (r.id === id ? { ...r, ...patch } : r)) }));
       persist();
+    },
+    editReminder(id, patch) {
+      const now = new Date();
+      set((s) => ({
+        reminders: s.reminders.map((r) => {
+          if (r.id !== id) return r;
+          const next: Reminder = { ...r, ...patch, title: patch.title.trim(), repeat: patch.repeat || undefined };
+          const scheduleChanged = r.date !== next.date || r.time !== next.time || r.repeat !== next.repeat;
+          if (!scheduleChanged) return next;
+          return {
+            ...next,
+            ...fireState(next, now),
+            done: next.repeat ? false : r.done,
+            doneDates: next.repeat && r.repeat ? r.doneDates : undefined,
+          };
+        }),
+      }));
+      persist();
+    },
+    toggleReminderDone(id, date) {
+      set((s) => ({
+        reminders: s.reminders.map((r) => {
+          if (r.id !== id) return r;
+          if (!r.repeat) return { ...r, done: !r.done };
+          const dates = new Set(r.doneDates ?? []);
+          if (dates.has(date)) dates.delete(date);
+          else dates.add(date);
+          return { ...r, doneDates: [...dates].sort() };
+        }),
+      }));
+      persist();
+    },
+    setEditingReminder(id) {
+      set({ editingReminderId: id });
     },
     deleteReminder(id) {
       set((s) => ({ reminders: s.reminders.filter((r) => r.id !== id) }));

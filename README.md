@@ -6,11 +6,11 @@ Built with **Tauri 2 + React + TypeScript**, Tailwind CSS v4 and shadcn/ui. Wind
 
 ## What's in this slice
 
-- **Calendar** — real month grid (Monday-first) with colored reminder dots; hovering a day expands that day's reminders. A **New reminder** bar sets date, color, optional time and title. Timed reminders play the finish sound in the app when they're due (no OS notifications). The side panel shows **% of the month left to work**, i.e. unworked days that are still ahead, alongside worked and not-worked counts.
+- **Calendar** — real month grid (Monday-first) with colored reminder dots; hovering a day expands that day's reminders. A **New reminder** bar sets date, color, optional time, **repeat** (once, daily, weekly on that weekday, monthly on that day — clamped to short months) and title. Click a reminder to **edit** everything; checking off a repeating reminder only completes that day's occurrence, and the Upcoming list shows each series once. Timed reminders play the finish sound in the app when they're due (no OS notifications). The side panel shows **% of the month left to work**, i.e. unworked days that are still ahead, alongside worked and not-worked counts.
 - **Notes** — Kanban board with drag-and-drop between columns, per-column quick add, search, move/delete actions and empty states. Cards open a script editor with headings, bold/italic/underline/strike, highlight, code, links, bulleted, numbered and check lists, quotes and dividers.
 - **Image references, not image pastes** — the image button links a file path (with a native file picker on desktop) or a URL. Only the reference is stored. Pasting or dropping image files into a script is blocked.
 - **Sessions** — opening a script asks how long you'll work: 30 minutes by default, with 15, 60 or Custom. The star ring fills as you go, and the top-right star shows minutes left (click it for progress, pause/resume, end early). **A day counts as worked only when a session finishes.** Finishing plays the goal sound.
-- **Settings** — profiles, default session length, upload/preview/reset a **custom goal-finish sound** (stored in the vault), volume, **vault folder** (change / move / reset), sync status and conflict copies, and the current app version.
+- **Settings** — profiles, default session length, upload/preview/reset a **custom goal-finish sound** (stored in the vault), volume, **vault folder** (change / move / reset), sync status and conflict copies, the current app version and a link to the [GitHub repo](https://github.com/reaccent/yorna).
 - **Sync through any cloud folder** — point the vault at a folder inside Google Drive, Dropbox, iCloud Drive or OneDrive (**Settings → Vault → Change folder…**). Yorna picks up changes the sync app brings in, merges overlapping saves without losing finished sessions, and lists conflict copies. See [docs/sync.md](docs/sync.md).
 - **Profiles** — with one profile Yorna opens straight to the calendar. Create more in **Settings → Profiles** (or from the picker); once there are two or more, launch shows **Who's writing?** and the top-right avatar or **Switch accounts** returns to it. Each profile has its own scripts, reminders, sessions, settings and goal sound.
 
@@ -87,4 +87,3 @@ src-tauri/                     # Rust shell: vault folder config/scope/copy/conf
 
 - A built-in Google Drive API connection (sign-in inside Yorna). Sync works through the provider's desktop app and a synced vault folder instead — see [docs/sync.md](docs/sync.md) for why.
 - Linux polish, code signing and auto-update.
-- Recurring reminders and reminder editing beyond done/delete.
